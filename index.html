@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Warehouse Tasks (Mobile)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"/>
+  <style>
+    body { font-family: 'Inter', sans-serif; background: #f0f2f5; }
+    .fade-in { animation: fadeIn .4s; }
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.98);} to { opacity: 1; transform: scale(1);} }
+    .pulse { animation: pulse 0.7s; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 #a7f3d0;} 70% { box-shadow: 0 0 0 10px rgba(16,185,129,0);} 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0);} }
+    .status-not-started { background: #ef4444; color: white; }
+    .status-processing   { background: #f59e0b; color: white; }
+    .status-ready        { background: #22c55e; color: white; }
+    .status-shipped      { background: #64748b; color: white; }
+    .task-card { transition: transform 0.2s, box-shadow 0.2s; }
+    .task-card:active { transform: scale(0.97); box-shadow: 0 2px 12px #a7f3d0; }
+    .fixed-bottom { position: fixed; bottom: 0; left: 0; width: 100vw; }
+  </style>
+</head>
+<body>
+  <audio id="ding" src="https://cdn.pixabay.com/audio/2022/10/16/audio_12b7b6b7f1.mp3"></audio>
+  <audio id="complete" src="https://cdn.pixabay.com/audio/2022/10/16/audio_12b7b6b7f1.mp3"></audio>
+  <audio id="error" src="https://cdn.pixabay.com/audio/2022/10/16/audio_126b9a3a1c.mp3"></audio>
+  <div class="bg-white shadow-md px-4 py-3 flex justify-between items-center">
+    <h1 class="text-2xl font-bold text-gray-900">Warehouse Tasks</h1>
+    <button id="history-btn" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded text-sm">History</button>
+  </div>
+  <div id="main-view" class="p-2">
+    <div id="tasks-list" class="space-y-3 mt-2"></div>
+  </div>
+  <div id="history-view" class="hidden p-2">
+    <h2 class="text-xl font-bold mb-3 text-gray-800">Task History</h2>
+    <div id="history-list" class="space-y-3"></div>
+  </div>
+  <!-- Task Modal -->
+  <div id="task-modal" class="modal hidden fixed z-50 left-0 top-0 w-full h-full overflow-auto bg-black bg-opacity-40 flex items-center justify-center">
+    <div class="bg-white p-6 rounded-lg max-w-sm w-full shadow-lg">
+      <h2 class="text-lg font-semibold mb-2">Update Task</h2>
+      <div id="modal-task-info" class="mb-2"></div>
+      <div class="mb-2">
+        <label class="block text-xs font-medium text-gray-700">Status</label>
+        <select id="modal-status" class="block w-full rounded border-gray-300">
+          <option value="not-started">Not Started</option>
+          <option value="processing">Processing</option>
+          <option value="ready">Ready</option>
+        </select>
+      </div>
+      <div class="flex justify-end space-x-2 mt-3">
+        <button id="modal-ship" class="bg-green-500 text-white px-3 py-1 rounded">Mark as Shipped</button>
+        <button id="modal-cancel" class="bg-gray-300 text-gray-800 px-3 py-1 rounded">Cancel</button>
+        <button id="modal-save" class="bg-blue-500 text-white px-3 py-1 rounded">Save</button>
+      </div>
+    </div>
+  </div>
+  <script type="module">
+    // --- Firebase Setup ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, serverTimestamp, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    const firebaseConfig = {
+      apiKey: "AIzaSyCrm8kHsJu4Ly4IPQgRpPkNWYcDXLAl6qY",
+      authDomain: "beta-644c6.firebaseapp.com",
+      projectId: "beta-644c6",
+      storageBucket: "beta-644c6.appspot.com",
+      messagingSenderId: "991306765452",
+      appId: "1:991306765452:web:bc9d004e17ef10b1c517a9"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+    let activeTasks = [], historyTasks = [];
+    // --- Sounds ---
+    function playSound(id) { try { document.getElementById(id).currentTime = 0; document.getElementById(id).play(); } catch{} }
+    // --- Auth & Data ---
+    onAuthStateChanged(auth, user => {
+      if (user) listenForTasks();
+    });
+    await signInAnonymously(auth);
+    function listenForTasks() {
+      const colRef = collection(db, "warehouse-tasks");
+      onSnapshot(query(colRef, where("status", "!=", "shipped")), snap => {
+        activeTasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderTasks();
+      });
+      onSnapshot(query(colRef, where("status", "==", "shipped")), snap => {
+        historyTasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderHistory();
+      });
+    }
+    // --- Renderers ---
+    function renderTasks() {
+      const el = document.getElementById("tasks-list");
+      el.innerHTML = "";
+      if (!activeTasks.length) { el.innerHTML = `<div class="card text-center text-gray-500">No active tasks.</div>`; return; }
+      activeTasks.forEach(task => {
+        const div = document.createElement("div");
+        div.className = `task-card rounded-lg shadow p-4 flex flex-col fade-in status-${task.status}`;
+        div.innerHTML = `
+          <div class="font-bold text-lg">${task.operation}</div>
+          <div class="text-sm">${task.details}</div>
+          <div class="text-xs">${task.quantity} ${task.unitType}</div>
+          <div class="flex items-center mt-2">
+            <span class="bg-white text-xs px-2 py-1 rounded-full text-gray-700">${task.status.replace('-',' ')}</span>
+            <button class="ml-auto bg-blue-500 text-white px-3 py-1 rounded update-btn" data-id="${task.id}">Update</button>
+          </div>
+        `;
+        el.appendChild(div);
+      });
+    }
+    function renderHistory() {
+      const el = document.getElementById("history-list");
+      el.innerHTML = "";
+      if (!historyTasks.length) { el.innerHTML = `<div class="card text-center text-gray-500">No shipped tasks.</div>`; return; }
+      historyTasks.forEach(task => {
+        const shippedDate = task.shippedAt?.toDate?.().toLocaleString() || "";
+        const div = document.createElement("div");
+        div.className = "card bg-slate-100 flex flex-col px-2 py-3";
+        div.innerHTML = `<b>${task.operation}</b><span class="text-xs">${task.details}</span>
+          <span class="text-xs text-gray-500">Shipped: ${shippedDate}</span>`;
+        el.appendChild(div);
+      });
+    }
+    // --- Modal Logic ---
+    let modalTaskId = null;
+    document.getElementById("tasks-list").onclick = e => {
+      const btn = e.target.closest(".update-btn");
+      if (!btn) return;
+      const task = activeTasks.find(t => t.id === btn.dataset.id);
+      if (!task) return;
+      modalTaskId = task.id;
+      document.getElementById("modal-task-info").innerHTML = `<b>${task.operation}</b><br>${task.details}<br>${task.quantity} ${task.unitType}`;
+      document.getElementById("modal-status").value = task.status;
+      document.getElementById("task-modal").classList.remove("hidden");
+    };
+    document.getElementById("modal-cancel").onclick = () => document.getElementById("task-modal").classList.add("hidden");
+    document.getElementById("modal-save").onclick = async () => {
+      const status = document.getElementById("modal-status").value;
+      await updateDoc(doc(db, "warehouse-tasks", modalTaskId), { status });
+      playSound("ding");
+      document.getElementById("task-modal").classList.add("hidden");
+    };
+    document.getElementById("modal-ship").onclick = async () => {
+      await updateDoc(doc(db, "warehouse-tasks", modalTaskId), { status: "shipped", shippedAt: serverTimestamp() });
+      playSound("complete");
+      document.getElementById("task-modal").classList.add("hidden");
+    };
+    // --- History Toggle ---
+    document.getElementById("history-btn").onclick = () => {
+      const hv = document.getElementById("history-view");
+      const mv = document.getElementById("main-view");
+      if (hv.classList.contains("hidden")) {
+        hv.classList.remove("hidden"); mv.classList.add("hidden");
+        document.getElementById("history-btn").textContent = "Back";
+      } else {
+        hv.classList.add("hidden"); mv.classList.remove("hidden");
+        document.getElementById("history-btn").textContent = "History";
+      }
+    };
+  </script>
+</body>
+</html>
