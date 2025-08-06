@@ -1,528 +1,154 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Warehouse Tasks (Mobile)</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"/>
+  <meta charset="UTF-8">
+  <title>Warehouse Tasks</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#2196f3">
+  <!-- Link to manifest.json for PWA capability -->
+  <link rel="manifest" href="/manifest.json">
   <style>
-    body { font-family: 'Inter', sans-serif; background: #f0f2f5; }
-    .fade-in { animation: fadeIn .4s; }
-    @keyframes fadeIn { from { opacity: 0; transform: scale(0.98);} to { opacity: 1; transform: scale(1);} }
-    .pulse { animation: pulse 0.7s; }
-    @keyframes pulse { 0% { box-shadow: 0 0 0 0 #a7f3d0;} 70% { box-shadow: 0 0 0 10px rgba(16,185,129,0);} 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0);} }
-    .status-not-started { background: #ef4444; color: white; }
-    .status-processing   { background: #f59e0b; color: white; }
-    .status-ready        { background: #22c55e; color: white; }
-    .status-shipped      { background: #64748b; color: white; }
-    .task-card { transition: transform 0.2s, box-shadow 0.2s; }
-    .task-card:active { transform: scale(0.97); box-shadow: 0 2px 12px #a7f3d0; }
-    .fixed-bottom { position: fixed; bottom: 0; left: 0; width: 100vw; }
-    
-    /* Notification styles */
-    .notification-permission-banner {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 12px 16px;
-      text-align: center;
-      font-size: 14px;
-      position: sticky;
-      top: 0;
-      z-index: 40;
+    body { font-family: system-ui, sans-serif; margin:0; background:#f2f5f8; }
+    header { background:#2196f3; color:white; padding:1em; font-size:1.4em; text-align:center; position:sticky; top:0; }
+    .notif-btn, .notif-status {
+      position: absolute; right:1em; top:1em;
+      background: #fff; color: #2196f3;
+      border: none; border-radius: 30px; padding: .3em 1.2em; font-size: 1em;
+      font-weight: bold; box-shadow: 0 2px 8px #0001; cursor: pointer;
     }
-    .notification-status {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      z-index: 50;
-      background: white;
-      border-radius: 8px;
-      padding: 8px 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      font-size: 12px;
-      font-weight: 600;
+    .notif-status { right:7em; background:#e3f2fd; color:#2196f3; }
+    #notif-banner {
+      display:none; background:#ffeb3b; color:#222; text-align:center; padding:.7em; font-size:1.1em;
     }
-    .notification-enabled { color: #16a34a; border-left: 4px solid #16a34a; }
-    .notification-disabled { color: #dc2626; border-left: 4px solid #dc2626; }
-    .notification-pending { color: #ca8a04; border-left: 4px solid #ca8a04; }
+    .task-list { padding:1em; }
+    .task {
+      background:#fff; margin:.7em 0; padding:1em; border-radius:8px;
+      box-shadow:0 2px 4px #0001;
+      display:flex; flex-direction: column;
+    }
   </style>
 </head>
 <body>
-  <!-- Notification Permission Banner -->
-  <div id="notification-banner" class="notification-permission-banner hidden">
-    <div class="flex items-center justify-center space-x-2">
-      <span>📢 Enable notifications to stay updated on task changes!</span>
-      <button id="enable-notifications" class="bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-1 rounded text-sm font-medium transition-all duration-200">
-        Enable
-      </button>
-      <button id="dismiss-banner" class="text-white text-opacity-70 hover:text-opacity-100 ml-2">✕</button>
-    </div>
-  </div>
-
-  <!-- Notification Status Indicator -->
-  <div id="notification-status" class="notification-status notification-disabled">
-    🔔 Notifications: Disabled
-  </div>
-
-  <audio id="ding" src="https://cdn.pixabay.com/audio/2022/10/16/audio_12b7b6b7f1.mp3"></audio>
-  <audio id="complete" src="https://cdn.pixabay.com/audio/2022/10/16/audio_12b7b6b7f1.mp3"></audio>
-  <audio id="error" src="https://cdn.pixabay.com/audio/2022/10/16/audio_126b9a3a1c.mp3"></audio>
-  
-  <div class="bg-white shadow-md px-4 py-3 flex justify-between items-center">
-    <h1 class="text-2xl font-bold text-gray-900">Warehouse Tasks</h1>
-    <div class="flex space-x-2">
-      <button id="notification-toggle" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-1 px-3 rounded text-sm">
-        🔔 Setup
-      </button>
-      <button id="history-btn" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded text-sm">History</button>
-    </div>
-  </div>
-
-  <div id="main-view" class="p-2">
-    <div id="tasks-list" class="space-y-3 mt-2"></div>
-  </div>
-
-  <div id="history-view" class="hidden p-2">
-    <h2 class="text-xl font-bold mb-3 text-gray-800">Task History</h2>
-    <div id="history-list" class="space-y-3"></div>
-  </div>
-
-  <!-- Task Modal -->
-  <div id="task-modal" class="modal hidden fixed z-50 left-0 top-0 w-full h-full overflow-auto bg-black bg-opacity-40 flex items-center justify-center">
-    <div class="bg-white p-6 rounded-lg max-w-sm w-full shadow-lg">
-      <h2 class="text-lg font-semibold mb-2">Update Task</h2>
-      <div id="modal-task-info" class="mb-2"></div>
-      <div class="mb-2">
-        <label class="block text-xs font-medium text-gray-700">Status</label>
-        <select id="modal-status" class="block w-full rounded border-gray-300">
-          <option value="not-started">Not Started</option>
-          <option value="processing">Processing</option>
-          <option value="ready">Ready</option>
-        </select>
-      </div>
-      <div class="flex justify-end space-x-2 mt-3">
-        <button id="modal-ship" class="bg-green-500 text-white px-3 py-1 rounded">Mark as Shipped</button>
-        <button id="modal-cancel" class="bg-gray-300 text-gray-800 px-3 py-1 rounded">Cancel</button>
-        <button id="modal-save" class="bg-blue-500 text-white px-3 py-1 rounded">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Notification Setup Modal -->
-  <div id="notification-modal" class="modal hidden fixed z-50 left-0 top-0 w-full h-full overflow-auto bg-black bg-opacity-40 flex items-center justify-center">
-    <div class="bg-white p-6 rounded-lg max-w-sm w-full shadow-lg">
-      <h2 class="text-lg font-semibold mb-3 text-center">🔔 Notification Setup</h2>
-      <div class="mb-4">
-        <div class="flex items-center space-x-2 mb-2">
-          <div id="permission-status-icon">❌</div>
-          <span id="permission-status-text">Permission not granted</span>
-        </div>
-        <div class="text-sm text-gray-600 mb-3">
-          Enable notifications to receive alerts when:
-          <ul class="list-disc ml-4 mt-1">
-            <li>New tasks are added</li>
-            <li>Task statuses change</li>
-            <li>Tasks are marked ready/shipped</li>
-          </ul>
-        </div>
-      </div>
-      <div class="flex justify-center space-x-2">
-        <button id="request-permission" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded font-medium">
-          Enable Notifications
-        </button>
-        <button id="close-notification-modal" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded font-medium">
-          Close
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <script type="module">
-    // --- Notification System ---
-    class NotificationManager {
-      constructor() {
-        this.isSupported = 'Notification' in window;
-        this.permission = this.isSupported ? Notification.permission : 'denied';
-        this.init();
-      }
-
-      init() {
-        this.updateUI();
-        this.bindEvents();
-        this.checkAndShowBanner();
-      }
-
-      checkAndShowBanner() {
-        // Show banner if notifications are not enabled and not explicitly dismissed
-        if (this.permission !== 'granted' && !localStorage.getItem('notification-banner-dismissed')) {
-          document.getElementById('notification-banner').classList.remove('hidden');
-        }
-      }
-
-      updateUI() {
-        const statusEl = document.getElementById('notification-status');
-        const iconEl = document.getElementById('permission-status-icon');
-        const textEl = document.getElementById('permission-status-text');
-
-        if (!this.isSupported) {
-          statusEl.textContent = '🔔 Notifications: Not Supported';
-          statusEl.className = 'notification-status notification-disabled';
-          if (iconEl) iconEl.textContent = '❌';
-          if (textEl) textEl.textContent = 'Not supported in this browser';
-        } else if (this.permission === 'granted') {
-          statusEl.textContent = '🔔 Notifications: Enabled';
-          statusEl.className = 'notification-status notification-enabled';
-          if (iconEl) iconEl.textContent = '✅';
-          if (textEl) textEl.textContent = 'Notifications enabled';
-        } else if (this.permission === 'denied') {
-          statusEl.textContent = '🔔 Notifications: Blocked';
-          statusEl.className = 'notification-status notification-disabled';
-          if (iconEl) iconEl.textContent = '❌';
-          if (textEl) textEl.textContent = 'Notifications blocked - please enable in browser settings';
-        } else {
-          statusEl.textContent = '🔔 Notifications: Disabled';
-          statusEl.className = 'notification-status notification-pending';
-          if (iconEl) iconEl.textContent = '⏳';
-          if (textEl) textEl.textContent = 'Click "Enable Notifications" to allow alerts';
-        }
-      }
-
-      async requestPermission() {
-        if (!this.isSupported) {
-          alert('Notifications are not supported in this browser');
-          return false;
-        }
-
-        if (this.permission === 'denied') {
-          alert('Notifications are blocked. Please enable them in your browser settings and refresh the page.');
-          return false;
-        }
-
-        try {
-          const permission = await Notification.requestPermission();
-          this.permission = permission;
-          this.updateUI();
-          
-          if (permission === 'granted') {
-            this.showNotification('Notifications Enabled!', {
-              body: 'You will now receive task updates',
-              icon: '🔔'
-            });
-            // Hide banner when permission is granted
-            document.getElementById('notification-banner').classList.add('hidden');
-            return true;
-          }
-        } catch (error) {
-          console.error('Error requesting notification permission:', error);
-          alert('Error requesting notification permission');
-        }
-        return false;
-      }
-
-      showNotification(title, options = {}) {
-        if (!this.isSupported || this.permission !== 'granted') {
-          console.log('Notifications not available:', title, options.body);
-          return;
-        }
-
-        try {
-          const notification = new Notification(title, {
-            body: options.body || '',
-            icon: options.icon || '/favicon.ico',
-            tag: options.tag || 'warehouse-task',
-            requireInteraction: false,
-            silent: false,
-            ...options
+  <header>
+    Warehouse Tasks
+    <span id="notif-status" class="notif-status"></span>
+    <button id="notif-btn" class="notif-btn">🔔 Enable Notifications</button>
+  </header>
+  <div id="notif-banner">Enable notifications for live task alerts! Install app to your Home Screen and accept notification permissions.</div>
+  <main>
+    <div class="task-list" id="tasks"></div>
+    <button style="margin:2em auto;display:block;font-size:1.2em; padding:.5em 2em;" onclick="addFakeTask()">Add Sample Task (Demo)</button>
+  </main>
+  <script>
+    // --- PWA Service Worker registration ---
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => {
+            //console.log('SW registered:', reg.scope);
+          }, err => {
+            //console.warn('SW reg failed:', err);
           });
+      });
+    }
 
-          // Auto-close after 5 seconds
-          setTimeout(() => {
-            notification.close();
-          }, 5000);
+    // -- Notification Permission UI --
+    const notifBtn   = document.getElementById('notif-btn');
+    const notifStat  = document.getElementById('notif-status');
+    const notifBanner= document.getElementById('notif-banner');
 
-          // Handle click events
-          notification.onclick = () => {
-            window.focus();
-            notification.close();
-            if (options.onClick) {
-              options.onClick();
-            }
-          };
+    function refreshNotifUI() {
+      if (!('Notification' in window)) {
+        notifBtn.style.display = 'none';
+        notifStat.style.display = 'inline';
+        notifStat.textContent = "Notifications Not Supported";
+        notifBanner.style.display='block';
+        return;
+      }
+      switch (Notification.permission) {
+        case 'granted':
+          notifBtn.style.display='none';
+          notifStat.style.display='inline';
+          notifStat.textContent = "🔔 On";
+          notifBanner.style.display='none';
+          break;
+        case 'denied':
+          notifBtn.style.display='none';
+          notifStat.style.display='inline';
+          notifStat.textContent = "🔕 Blocked";
+          notifBanner.textContent="Notifications are blocked in settings. Please re-enable in iOS settings > Notifications.";
+          notifBanner.style.display='block';
+          break;
+        default:
+          notifBtn.style.display='inline';
+          notifStat.style.display='none';
+          notifBanner.style.display='block';
+      }
+    }
 
-          return notification;
-        } catch (error) {
-          console.error('Error showing notification:', error);
+    notifBtn.onclick = function() {
+      if (!('Notification' in window)) {
+        notifBanner.style.display='block';
+        return;
+      }
+      Notification.requestPermission()
+      .then(perm => {
+        refreshNotifUI();
+        if (perm === "granted") {
+          sendLocalTestNotification();
         }
-      }
+      });
+    };
 
-      bindEvents() {
-        // Enable notifications button in banner
-        document.getElementById('enable-notifications')?.addEventListener('click', async () => {
-          await this.requestPermission();
-        });
-
-        // Dismiss banner button
-        document.getElementById('dismiss-banner')?.addEventListener('click', () => {
-          document.getElementById('notification-banner').classList.add('hidden');
-          localStorage.setItem('notification-banner-dismissed', 'true');
-        });
-
-        // Notification toggle button
-        document.getElementById('notification-toggle')?.addEventListener('click', () => {
-          document.getElementById('notification-modal').classList.remove('hidden');
-          this.updateUI();
-        });
-
-        // Request permission button in modal
-        document.getElementById('request-permission')?.addEventListener('click', async () => {
-          await this.requestPermission();
-        });
-
-        // Close modal button
-        document.getElementById('close-notification-modal')?.addEventListener('click', () => {
-          document.getElementById('notification-modal').classList.add('hidden');
-        });
-
-        // Close modal when clicking outside
-        document.getElementById('notification-modal')?.addEventListener('click', (e) => {
-          if (e.target.id === 'notification-modal') {
-            document.getElementById('notification-modal').classList.add('hidden');
+    // Fake Local Notification for demo -- native Push will require server-side
+    function sendLocalTestNotification(msg) {
+      if (Notification.permission === "granted") {
+        navigator.serviceWorker.getRegistration().then(rg=>{
+          if (rg) {
+            rg.showNotification("Warehouse Test", {
+              body: msg || "Notifications are working!"
+            });
           }
         });
       }
+    }
 
-      // Notification methods for different task events
-      notifyNewTask(task) {
-        this.showNotification('📋 New Task Added', {
-          body: `${task.operation} - ${task.details}`,
-          tag: `task-new-${task.id}`,
-          icon: '📋'
-        });
-      }
+    // --- Main App Logic Demo: Display tasks, notify on new task ---
+    let taskIdSeq = 1;
 
-      notifyTaskUpdate(task, oldStatus, newStatus) {
-        const statusEmoji = {
-          'not-started': '🔴',
-          'processing': '🟡',
-          'ready': '🟢',
-          'shipped': '📦'
-        };
+    function addTask(task) {
+      const list = document.getElementById('tasks');
+      const d = document.createElement('div');
+      d.className = "task";
+      d.innerHTML = `<b>${task.title}</b><br>Status: ${task.status}<br><small>${task.details}</small>`;
+      list.insertBefore(d, list.firstChild);
 
-        this.showNotification('🔄 Task Updated', {
-          body: `${task.operation} status changed from ${oldStatus.replace('-', ' ')} to ${newStatus.replace('-', ' ')}`,
-          tag: `task-update-${task.id}`,
-          icon: statusEmoji[newStatus] || '🔄'
-        });
-      }
-
-      notifyTaskReady(task) {
-        this.showNotification('✅ Task Ready', {
-          body: `${task.operation} is ready for processing`,
-          tag: `task-ready-${task.id}`,
-          icon: '✅'
-        });
-      }
-
-      notifyTaskShipped(task) {
-        this.showNotification('📦 Task Shipped', {
-          body: `${task.operation} has been shipped`,
-          tag: `task-shipped-${task.id}`,
-          icon: '📦'
+      // Show notification if permitted
+      if (Notification.permission === "granted") {
+        navigator.serviceWorker.getRegistration().then(swreg=>{
+          if (!swreg) return;
+          swreg.showNotification("New Warehouse Task", {
+            body: `${task.title}: ${task.details}`
+          });
         });
       }
     }
 
-    // Initialize notification manager
-    const notificationManager = new NotificationManager();
-
-    // --- Firebase Setup ---
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, serverTimestamp, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    
-    const firebaseConfig = {
-      apiKey: "AIzaSyCrm8kHsJu4Ly4IPQgRpPkNWYcDXLAl6qY",
-      authDomain: "beta-644c6.firebaseapp.com",
-      projectId: "beta-644c6",
-      storageBucket: "beta-644c6.appspot.com",
-      messagingSenderId: "9.91306765452e+11",
-      appId: "1:9.91306765452e+11:web:bc9d004e17ef10b1c517a9"
-    };
-    
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    const auth = getAuth(app);
-    let activeTasks = [], historyTasks = [];
-    let previousTasks = new Map(); // Track previous task states for notifications
-
-    // --- Sounds ---
-    function playSound(id) { 
-      try { 
-        document.getElementById(id).currentTime = 0; 
-        document.getElementById(id).play(); 
-      } catch(e) {
-        console.log('Sound play failed:', e);
-      } 
-    }
-
-    // --- Auth & Data ---
-    onAuthStateChanged(auth, user => {
-      if (user) listenForTasks();
-    });
-    
-    await signInAnonymously(auth);
-
-    function listenForTasks() {
-      const colRef = collection(db, "warehouse-tasks");
-      
-      onSnapshot(query(colRef, where("status", "!=", "shipped")), snap => {
-        const newActiveTasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        
-        // Check for new or updated tasks for notifications
-        newActiveTasks.forEach(task => {
-          const previousTask = previousTasks.get(task.id);
-          
-          if (!previousTask) {
-            // New task
-            if (activeTasks.length > 0) { // Don't notify on initial load
-              notificationManager.notifyNewTask(task);
-              playSound("ding");
-            }
-          } else if (previousTask.status !== task.status) {
-            // Task status changed
-            notificationManager.notifyTaskUpdate(task, previousTask.status, task.status);
-            
-            if (task.status === 'ready') {
-              notificationManager.notifyTaskReady(task);
-            }
-            
-            playSound("ding");
-          }
-          
-          // Update previous task state
-          previousTasks.set(task.id, { ...task });
-        });
-        
-        activeTasks = newActiveTasks;
-        renderTasks();
-      });
-
-      onSnapshot(query(colRef, where("status", "==", "shipped")), snap => {
-        const newHistoryTasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        
-        // Check for newly shipped tasks
-        newHistoryTasks.forEach(task => {
-          const previousTask = previousTasks.get(task.id);
-          if (previousTask && previousTask.status !== 'shipped') {
-            notificationManager.notifyTaskShipped(task);
-            playSound("complete");
-          }
-          previousTasks.set(task.id, { ...task });
-        });
-        
-        historyTasks = newHistoryTasks;
-        renderHistory();
-      });
-    }
-
-    // --- Renderers ---
-    function renderTasks() {
-      const el = document.getElementById("tasks-list");
-      el.innerHTML = "";
-      if (!activeTasks.length) { 
-        el.innerHTML = `<div class="card text-center text-gray-500">No active tasks.</div>`; 
-        return; 
-      }
-      
-      activeTasks.forEach(task => {
-        const div = document.createElement("div");
-        div.className = `task-card rounded-lg shadow p-4 flex flex-col fade-in status-${task.status}`;
-        div.innerHTML = `
-          <div class="font-bold text-lg">${task.operation}</div>
-          <div class="text-sm">${task.details}</div>
-          <div class="text-xs">${task.quantity} ${task.unitType}</div>
-          <div class="flex items-center mt-2">
-            <span class="bg-white text-xs px-2 py-1 rounded-full text-gray-700">${task.status.replace('-',' ')}</span>
-            <button class="ml-auto bg-blue-500 text-white px-3 py-1 rounded update-btn" data-id="${task.id}">Update</button>
-          </div>
-        `;
-        el.appendChild(div);
-      });
-    }
-
-    function renderHistory() {
-      const el = document.getElementById("history-list");
-      el.innerHTML = "";
-      if (!historyTasks.length) { 
-        el.innerHTML = `<div class="card text-center text-gray-500">No shipped tasks.</div>`; 
-        return; 
-      }
-      
-      historyTasks.forEach(task => {
-        const shippedDate = task.shippedAt?.toDate?.().toLocaleString() || "";
-        const div = document.createElement("div");
-        div.className = "card bg-slate-100 flex flex-col px-2 py-3";
-        div.innerHTML = `<b>${task.operation}</b><span class="text-xs">${task.details}</span>
-          <span class="text-xs text-gray-500">Shipped: ${shippedDate}</span>`;
-        el.appendChild(div);
-      });
-    }
-
-    // --- Modal Logic ---
-    let modalTaskId = null;
-
-    document.getElementById("tasks-list").onclick = e => {
-      const btn = e.target.closest(".update-btn");
-      if (!btn) return;
-      const task = activeTasks.find(t => t.id === btn.dataset.id);
-      if (!task) return;
-      modalTaskId = task.id;
-      document.getElementById("modal-task-info").innerHTML = `<b>${task.operation}</b><br>${task.details}<br>${task.quantity} ${task.unitType}`;
-      document.getElementById("modal-status").value = task.status;
-      document.getElementById("task-modal").classList.remove("hidden");
+    // Demo: Add a fake task for test
+    window.addFakeTask = function() {
+      const task = {
+        title: "Task #" + (taskIdSeq++),
+        status: "New",
+        details: "Demo operation item created at " + new Date().toLocaleTimeString()
+      };
+      addTask(task);
     };
 
-    document.getElementById("modal-cancel").onclick = () => document.getElementById("task-modal").classList.add("hidden");
+    // Refresh UI on load & when permission changes
+    refreshNotifUI();
 
-    document.getElementById("modal-save").onclick = async () => {
-      const status = document.getElementById("modal-status").value;
-      await updateDoc(doc(db, "warehouse-tasks", modalTaskId), { status });
-      playSound("ding");
-      document.getElementById("task-modal").classList.add("hidden");
-    };
-
-    document.getElementById("modal-ship").onclick = async () => {
-      await updateDoc(doc(db, "warehouse-tasks", modalTaskId), { status: "shipped", shippedAt: serverTimestamp() });
-      playSound("complete");
-      document.getElementById("task-modal").classList.add("hidden");
-    };
-
-    // --- History Toggle ---
-    document.getElementById("history-btn").onclick = () => {
-      const hv = document.getElementById("history-view");
-      const mv = document.getElementById("main-view");
-      if (hv.classList.contains("hidden")) {
-        hv.classList.remove("hidden"); 
-        mv.classList.add("hidden");
-        document.getElementById("history-btn").textContent = "Back";
-      } else {
-        hv.classList.add("hidden"); 
-        mv.classList.remove("hidden");
-        document.getElementById("history-btn").textContent = "History";
-      }
-    };
-
-    // Test notification function (for development)
-    window.testNotification = () => {
-      notificationManager.showNotification('Test Notification', {
-        body: 'This is a test notification from the warehouse app',
-        icon: '🧪'
-      });
-    };
-
-    // Expose notification manager globally for debugging
-    window.notificationManager = notificationManager;
+    // iOS: Hint to the user on first launch
+    setTimeout(()=>{if(Notification.permission!=="granted") notifBanner.style.display='block';},4000);
   </script>
 </body>
 </html>
